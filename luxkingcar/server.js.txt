@@ -1,0 +1,304 @@
+// Требуется Node.js
+
+const http = require('http');
+const fs = require('fs');
+const url = require('url');
+
+const MAX_TICKETS = 7000;
+const TICKET_PRICE = 400;
+
+let ticketsSold = []; // {id: number, buyer: string, ticketNumbers: [number]}
+
+function generateTicketNumbers(count) {
+  const soldNumbers = new Set();
+  ticketsSold.forEach(t => t.ticketNumbers.forEach(n => soldNumbers.add(n)));
+
+  let numbers = [];
+  while (numbers.length < count) {
+    const num = Math.floor(Math.random() * MAX_TICKETS) + 1;
+    if (!soldNumbers.has(num)) {
+      soldNumbers.add(num);
+      numbers.push(num);
+    }
+  }
+  return numbers;
+}
+
+const server = http.createServer((req, res) => {
+  const parsedUrl = url.parse(req.url,true);
+
+  // Страница админа - список билетов (по URL /admin)
+  if(parsedUrl.pathname === '/admin') {
+    res.writeHead(200, {'Content-Type': 'text/html; charset=utf-8'});
+    let rows = ticketsSold.map((t,i) => `
+      <tr>
+        <td>${i+1}</td>
+        <td>${t.buyer}</td>
+        <td>${t.ticketNumbers.join(', ')}</td>
+      </tr>
+    `).join('');
+
+    res.end(`
+      <html>
+      <head>
+        <title>Админ панель - Lux King Car</title>
+        <style>
+          body {font-family:sans-serif; background:#f0f0f0; padding:20px;}
+          table {border-collapse: collapse; width: 100%; max-width: 800px; margin: auto;}
+          th, td {border: 1px solid #ccc; padding: 10px; text-align: center;}
+          th {background: #008751; color: white;}
+          h1 {text-align:center; color:#008751;}
+        </style>
+      </head>
+      <body>
+        <h1>Админ панель Lux King Car</h1>
+        <table>
+          <thead>
+            <tr><th>#</th><th>Покупатель</th><th>Номера билетов</th></tr>
+          </thead>
+          <tbody>
+            ${rows || '<tr><td colspan="3">Пока нет купленных билетов</td></tr>'}
+          </tbody>
+        </table>
+      </body>
+      </html>
+    `);
+    return;
+  }
+
+  // Главная страница и форма покупки
+  if(req.method === 'GET' && (parsedUrl.pathname === '/' || parsedUrl.pathname === '/index.html')) {
+    res.writeHead(200, {'Content-Type': 'text/html; charset=utf-8'});
+    res.end(`
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lux King Car - Розыгрыш автомобиля</title>
+<style>
+  :root {
+    --italy-green: #008751;
+    --italy-white: #ffffff;
+    --italy-red: #d62e2e;
+  }
+  body, html {
+    margin: 0; padding: 0; height: 100%;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: linear-gradient(90deg, var(--italy-green) 0%, var(--italy-white) 50%, var(--italy-red) 100%);
+    color: #222;
+    overflow-x: hidden;
+  }
+  .container {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    padding: 20px;
+  }
+  h1 {
+    font-size: 3rem;
+    margin-bottom: 10px;
+    font-weight: 900;
+    color: #fff;
+    text-shadow: 2px 2px 6px rgba(0,0,0,0.7);
+  }
+  .subtitle {
+    font-size: 1.2rem;
+    color: #eee;
+    margin-bottom: 40px;
+    text-shadow: 1px 1px 3px rgba(0,0,0,0.5);
+  }
+  .car-image {
+    max-width: 90%;
+    max-height: 350px;
+    border-radius: 15px;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.7);
+    margin-bottom: 40px;
+  }
+  form {
+    background: #fff;
+    padding: 30px 40px;
+    border-radius: 20px;
+    box-shadow: 0 8px 25px rgba(0,0,0,0.25);
+    max-width: 400px;
+    width: 100%;
+    color: #222;
+  }
+  label {
+    font-weight: 700;
+    display: block;
+    margin-bottom: 6px;
+    font-size: 1.1rem;
+  }
+  input[type="text"], input[type="number"] {
+    width: 100%;
+    padding: 12px 10px;
+    margin-bottom: 20px;
+    font-size: 1.1rem;
+    border: 2px solid var(--italy-green);
+    border-radius: 12px;
+  }
+  button {
+    background-color: var(--italy-red);
+    color: var(--italy-white);
+    font-weight: 700;
+    border: none;
+    padding: 15px 40px;
+    font-size: 1.3rem;
+    border-radius: 50px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+    width: 100%;
+  }
+  button:hover {
+    background-color: #a71f1f;
+  }
+  .info {
+    margin-bottom: 25px;
+    color: #eee;
+    text-shadow: 1px 1px 3px rgba(0,0,0,0.6);
+  }
+  #result {
+    margin-top: 20px;
+    font-weight: 700;
+    font-size: 1.2rem;
+    color: #008751;
+  }
+</style>
+</head>
+<body>
+  <div class="container">
+    <h1>Lux King Car</h1>
+    <div class="subtitle">Розыгрыш автомобиля мечты — участвуй и выигрывай!</div>
+    <img class="car-image" src="https://cdn.pixabay.com/photo/2016/02/19/11/53/car-1209816_1280.jpg" alt="Автомобиль" />
+    <form id="buyForm">
+      <div class="info">
+        Всего билетов: ${MAX_TICKETS}. Цена одного билета: ${TICKET_PRICE} грн.<br>
+        Максимум можно купить 10 билетов за раз.
+      </div>
+      <label for="buyerName">Ваше имя:</label>
+      <input type="text" id="buyerName" name="buyerName" placeholder="Введите имя" required />
+      <label for="ticketCount">Количество билетов:</label>
+      <input type="number" id="ticketCount" name="ticketCount" min="1" max="10" value="1" required />
+      <button type="submit">Купить билеты</button>
+    </form>
+    <div id="result"></div>
+  </div>
+
+<script>
+  const form = document.getElementById('buyForm');
+  const resultDiv = document.getElementById('result');
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    resultDiv.textContent = 'Обрабатываем покупку...';
+
+    const buyerName = document.getElementById('buyerName').value.trim();
+    const ticketCount = parseInt(document.getElementById('ticketCount').value);
+
+    if(!buyerName) {
+      alert('Введите ваше имя');
+      resultDiv.textContent = '';
+      return;
+    }
+
+    if(ticketCount < 1 || ticketCount > 10) {
+      alert('Количество билетов должно быть от 1 до 10');
+      resultDiv.textContent = '';
+      return;
+    }
+
+    // Отправляем данные на сервер POST /buy
+    const resp = await fetch('/buy', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({buyerName, ticketCount})
+    });
+
+    if(resp.ok) {
+      const data = await resp.json();
+      if(data.error) {
+        resultDiv.style.color = 'red';
+        resultDiv.textContent = data.error;
+      } else {
+        resultDiv.style.color = 'green';
+        resultDiv.innerHTML = `
+          <p>Спасибо за покупку, <b>${buyerName}</b>!</p>
+          <p>Вы приобрели <b>${ticketCount}</b> билет(ов) на сумму <b>${ticketCount * ${TICKET_PRICE}} грн</b>.</p>
+          <p>Ваши номера билетов:</p>
+          <ul>${data.ticketNumbers.map(n => `<li>Билет №${n}</li>`).join('')}</ul>
+          <p>Вы можете проверить список билетов на <a href="/admin" target="_blank">админ-странице</a>.</p>
+        `;
+        form.reset();
+      }
+    } else {
+      resultDiv.style.color = 'red';
+      resultDiv.textContent = 'Ошибка сервера, попробуйте позже.';
+    }
+  });
+</script>
+</body>
+</html>
+    `);
+    return;
+  }
+
+  // Обработка покупки билетов (POST /buy)
+  if(req.method === 'POST' && parsedUrl.pathname === '/buy') {
+    let body = '';
+    req.on('data', chunk => body += chunk.toString());
+    req.on('end', () => {
+      try {
+        const {buyerName, ticketCount} = JSON.parse(body);
+
+        if(typeof buyerName !== 'string' || !buyerName.trim()) {
+          res.writeHead(400, {'Content-Type': 'application/json'});
+          res.end(JSON.stringify({error: 'Имя обязательно'}));
+          return;
+        }
+        if(typeof ticketCount !== 'number' || ticketCount < 1 || ticketCount > 10) {
+          res.writeHead(400, {'Content-Type': 'application/json'});
+          res.end(JSON.stringify({error: 'Неверное количество билетов'}));
+          return;
+        }
+
+        // Проверка остатков
+        let totalSold = ticketsSold.reduce((sum, t) => sum + t.ticketNumbers.length, 0);
+        if(totalSold + ticketCount > MAX_TICKETS) {
+          res.writeHead(400, {'Content-Type': 'application/json'});
+          res.end(JSON.stringify({error: 'Билетов больше нет в наличии'}));
+          return;
+        }
+
+        // Генерируем номера билетов
+        const ticketNumbers = generateTicketNumbers(ticketCount);
+
+        // Добавляем покупателя и билеты в список
+        ticketsSold.push({
+          buyer: buyerName.trim(),
+          ticketNumbers,
+        });
+
+        res.writeHead(200, {'Content-Type': 'application/json'});
+        res.end(JSON.stringify({ticketNumbers}));
+      } catch(e) {
+        res.writeHead(400, {'Content-Type': 'application/json'});
+        res.end(JSON.stringify({error: 'Ошибка данных'}));
+      }
+    });
+    return;
+  }
+
+  // Если страница не найдена
+  res.writeHead(404, {'Content-Type': 'text/plain; charset=utf-8'});
+  res.end('Страница не найдена');
+});
+
+const PORT = 3000;
+server.listen(PORT, () => {
+  console.log(`Server started on http://localhost:${PORT}`);
+  console.log(`Админ панель: http://localhost:${PORT}/admin`);
+});
